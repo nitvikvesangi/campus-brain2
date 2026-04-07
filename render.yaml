@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: campus-brain
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build && npm run seed
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.0
+      - key: DATA_DIR
+        value: /var/data
+      - key: GEMINI_API_KEY
+        sync: false
+    disk:
+      name: campus-data
+      mountPath: /var/data
+      sizeGB: 1
