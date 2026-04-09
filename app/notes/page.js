@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
-import { Plus, FileText, User, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, FileText, User, Sparkles, ChevronDown, ChevronUp, Trash2, Share2 } from 'lucide-react';
 
 export default function NotesPage() {
   const [notes, setNotes] = useState([]);
@@ -18,6 +18,38 @@ export default function NotesPage() {
     const data = await res.json();
     setNotes(data.notes || []);
     setLoading(false);
+  }
+
+  const [groups, setGroups] = useState([]);
+  const [shareModal, setShareModal] = useState(null);
+  const [shareSuccess, setShareSuccess] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/groups').then(r => r.json()).then(d => setGroups((d.groups || []).filter(g => g.is_member)));
+  }, []);
+
+  async function shareToGroup(note, groupId) {
+    await fetch('/api/groups/' + groupId + '/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: '',
+        type: 'note',
+        ref_id: note.id,
+        ref_title: note.title,
+        ref_summary: note.summary,
+        ref_subject: note.subject,
+      }),
+    });
+    setShareModal(null);
+    setShareSuccess(true);
+    setTimeout(() => setShareSuccess(false), 3000);
+  }
+
+  async function deleteNote(id) {
+    if (!confirm('Delete this note?')) return;
+    await fetch('/api/notes?id=' + id, { method: 'DELETE' });
+    load();
   }
 
   const subjects = ['all', ...Array.from(new Set(notes.map(n => n.subject)))];
@@ -62,7 +94,7 @@ export default function NotesPage() {
                       <div className="flex items-center gap-3 text-xs text-muted mb-3">
                         <span className="px-2 py-0.5 rounded bg-accent/10 text-accent">{n.subject}</span>
                         {n.unit && <span>{n.unit}</span>}
-                        <span className="flex items-center gap-1"><User size={12} /> {n.author_name}</span>
+                        <Link href={"/profile/" + n.user_id} onClick={e => e.stopPropagation()} className="flex items-center gap-1 hover:text-accent transition-colors"><User size={12} /> {n.author_name}</Link>
                       </div>
                       <div className="flex items-start gap-2 mb-3">
                         <Sparkles size={14} className="text-accent2 mt-1 flex-shrink-0" />
@@ -72,9 +104,17 @@ export default function NotesPage() {
                         {n.key_topics.map((t, i) => <span key={i} className="tag">{t}</span>)}
                       </div>
                     </div>
-                    <button onClick={() => setExpanded({ ...expanded, [n.id]: !isOpen })} className="btn-ghost text-xs flex items-center gap-1">
-                      {isOpen ? <>Hide <ChevronUp size={14} /></> : <>Details <ChevronDown size={14} /></>}
-                    </button>
+                    <div className="flex gap-2">
+                      <button onClick={() => setExpanded({ ...expanded, [n.id]: !isOpen })} className="btn-ghost text-xs flex items-center gap-1">
+                        {isOpen ? <>Hide <ChevronUp size={14} /></> : <>Details <ChevronDown size={14} /></>}
+                      </button>
+                      <button onClick={() => deleteNote(n.id)} className="btn-ghost text-xs flex items-center gap-1 hover:text-red-400">
+                        <Trash2 size={14} />
+                      </button>
+                      <button onClick={() => setShareModal(n)} className="btn-ghost text-xs flex items-center gap-1 hover:text-accent">
+                        <Share2 size={14} />
+                      </button>
+                    </div>
                   </div>
 
                   {isOpen && (
@@ -101,6 +141,32 @@ export default function NotesPage() {
           </div>
         )}
       </div>
+      {shareSuccess && (
+        <div className="fixed bottom-6 right-6 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 text-sm font-medium">
+          Shared to group successfully!
+        </div>
+      )}
+      {shareModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="card p-6 w-full max-w-sm">
+            <h3 className="font-semibold mb-1">Share to Group</h3>
+            <p className="text-sm text-muted mb-4">Share "{shareModal.title}" to a study group</p>
+            {groups.length === 0 ? (
+              <div className="text-sm text-muted">You have not joined any groups yet.</div>
+            ) : (
+              <div className="space-y-2">
+                {groups.map(g => (
+                  <button key={g.id} onClick={() => shareToGroup(shareModal, g.id)} className="w-full text-left p-3 rounded-lg bg-panel2 border border-border hover:border-accent/40 transition-colors">
+                    <div className="font-medium text-sm">{g.name}</div>
+                    {g.subject && <div className="text-xs text-muted">{g.subject}</div>}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setShareModal(null)} className="btn-ghost w-full mt-3 text-center">Cancel</button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

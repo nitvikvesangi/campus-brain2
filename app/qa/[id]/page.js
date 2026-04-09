@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
-import { ArrowUp, ArrowDown, Sparkles, User, EyeOff, Bot, Send, Trash2, ChevronDown, ChevronUp, Lock } from 'lucide-react';
+import { ArrowUp, ArrowDown, Sparkles, User, EyeOff, Bot, Send, Trash2, ChevronDown, ChevronUp, Lock, ArrowLeft } from 'lucide-react';
 
 export default function QuestionDetail() {
   const { id } = useParams();
@@ -15,6 +15,7 @@ export default function QuestionDetail() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatInitialized, setChatInitialized] = useState(false);
+  const [relatedNotes, setRelatedNotes] = useState([]);
   const chatBottomRef = useRef(null);
 
   useEffect(() => { loadQuestion(); }, [id]);
@@ -26,6 +27,7 @@ export default function QuestionDetail() {
     const d = await r.json();
     setQuestion(d.question);
     setAnswers(d.answers || []);
+    setRelatedNotes(d.relatedNotes || []);
   }
 
   async function loadChatHistory() {
@@ -77,6 +79,9 @@ export default function QuestionDetail() {
     <>
       <Navbar />
       <div className="max-w-3xl mx-auto p-6">
+        <button onClick={() => window.history.back()} className="flex items-center gap-2 text-muted hover:text-white mb-4 text-sm">
+          <ArrowLeft size={16} /> Back to Q&A
+        </button>
         <div className="card p-6 mb-6">
           <h1 className="text-2xl font-bold mb-3">{question.title}</h1>
           <p className="text-gray-300 leading-relaxed mb-4 whitespace-pre-wrap prose prose-invert">{question.body}</p>
@@ -155,6 +160,28 @@ export default function QuestionDetail() {
             </div>
           ))}
         </div>
+
+        {relatedNotes.length > 0 && (
+          <div className="card p-5 mb-6">
+            <div className="text-xs uppercase tracking-wide text-muted mb-3 flex items-center gap-2">
+              <span>📚</span> Related Notes
+            </div>
+            <div className="space-y-2">
+              {relatedNotes.map(n => (
+                <a key={n.id} href="/notes" className="block p-3 rounded-lg bg-panel2 border border-border hover:border-accent/40 transition-colors">
+                  <div className="font-medium text-sm">{n.title}</div>
+                  <div className="text-xs text-muted mt-0.5">{n.subject}{n.unit ? ' · ' + n.unit : ''}</div>
+                  {n.summary && <div className="text-xs text-muted mt-1 line-clamp-2">{n.summary}</div>}
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {(n.key_topics || []).slice(0, 4).map((t, i) => (
+                      <span key={i} className="tag">{t}</span>
+                    ))}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         <form onSubmit={submitAnswer} className="card p-5">
           <div className="text-xs uppercase tracking-wide text-muted mb-2">Your Answer</div>

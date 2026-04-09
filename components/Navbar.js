@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Brain, BookOpen, MessageSquare, Search, Video, LogOut, LayoutDashboard } from 'lucide-react';
+import { Brain, BookOpen, MessageSquare, Search, Video, LogOut, LayoutDashboard, Trophy, Users } from 'lucide-react';
 
 export default function Navbar() {
   const [user, setUser] = useState(null);
@@ -26,6 +26,8 @@ export default function Navbar() {
     { href: '/notes', label: 'Notes', icon: BookOpen },
     { href: '/qa', label: 'Q&A', icon: MessageSquare },
     { href: '/sessions', label: 'Sessions', icon: Video },
+    { href: '/groups', label: 'Groups', icon: Users },
+    { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
   ];
 
   return (

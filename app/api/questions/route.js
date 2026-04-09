@@ -40,3 +40,20 @@ export async function POST(req) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+
+export async function DELETE(req) {
+  try {
+    const uid = req.cookies.get('uid')?.value;
+    if (!uid) return NextResponse.json({ error: 'Not logged in' }, { status: 401 });
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'Question ID required' }, { status: 400 });
+    const q = db.prepare('SELECT * FROM questions WHERE id = ?').get(id);
+    if (!q) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (q.user_id && q.user_id != uid) return NextResponse.json({ error: 'Not yours' }, { status: 403 });
+    db.prepare('DELETE FROM answers WHERE question_id = ?').run(id);
+    db.prepare('DELETE FROM questions WHERE id = ?').run(id);
+    db.prepare('UPDATE users SET reputation = reputation - 5 WHERE id = ?').run(uid);
+    return NextResponse.json({ ok: true });
+  } catch (e) { return NextResponse.json({ error: e.message }, { status: 500 }); }
+}

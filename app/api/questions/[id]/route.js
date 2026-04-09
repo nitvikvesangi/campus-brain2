@@ -27,7 +27,19 @@ export async function GET(req, { params }) {
     return rankScore(b.votes, b.created_at) - rankScore(a.votes, a.created_at);
   });
 
-  return NextResponse.json({ question: { ...question, embedding: undefined }, answers });
+  // Find related notes using semantic similarity
+  const { generateEmbedding, cosineSimilarity } = require('@/lib/ai');
+  const queryEmb = generateEmbedding(question.title + ' ' + question.body + ' ' + (question.tags || '') + ' ' + (question.subject || ''));
+  const allNotes = db.prepare('SELECT id, title, subject, unit, summary, key_topics, embedding FROM notes').all();
+  const relatedNotes = allNotes.map(n => {
+    try {
+      const emb = JSON.parse(n.embedding || '[]');
+      const score = cosineSimilarity(queryEmb, emb);
+      return { ...n, score, key_topics: JSON.parse(n.key_topics || '[]'), embedding: undefined };
+    } catch { return null; }
+  }).filter(n => n && n.score > 0.25).sort((a, b) => b.score - a.score).slice(0, 3);
+
+  return NextResponse.json({ question: { ...question, embedding: undefined }, answers, relatedNotes });
 }
 
 export async function POST(req, { params }) {
