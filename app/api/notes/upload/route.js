@@ -6,6 +6,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 async function uploadToCloudinary(buffer, filename) {
+  console.log("Cloudinary config:", process.env.CLOUDINARY_CLOUD_NAME, process.env.CLOUDINARY_API_KEY ? "key set" : "NO KEY");
   const cloudinary = require('cloudinary').v2;
   cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -14,7 +15,7 @@ async function uploadToCloudinary(buffer, filename) {
   });
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { resource_type: 'raw', type: 'upload', access_mode: 'public', public_id: 'campus-brain/' + Date.now() + '_' + filename, overwrite: false },
+      { resource_type: 'image', type: 'upload', access_mode: 'public', public_id: 'campus-brain/' + Date.now() + '_' + filename, invalidate: true },
       (error, result) => { if (error) reject(error); else resolve(result.secure_url); }
     );
     stream.end(buffer);
