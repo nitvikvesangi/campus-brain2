@@ -14,7 +14,7 @@ async function uploadToCloudinary(buffer, filename) {
   });
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { resource_type: 'raw', public_id: 'campus-brain/' + Date.now() + '_' + filename, overwrite: false },
+      { resource_type: 'raw', type: 'upload', access_mode: 'public', public_id: 'campus-brain/' + Date.now() + '_' + filename, overwrite: false },
       (error, result) => { if (error) reject(error); else resolve(result.secure_url); }
     );
     stream.end(buffer);
