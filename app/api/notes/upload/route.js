@@ -1,11 +1,25 @@
 import { NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
 const db = require('@/lib/db');
 const { generateNoteIntelligence, generateEmbedding } = require('@/lib/ai');
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
+
+async function uploadToCloudinary(buffer, filename) {
+  const cloudinary = require('cloudinary').v2;
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { resource_type: 'raw', public_id: 'campus-brain/' + Date.now() + '_' + filename, overwrite: false },
+      (error, result) => { if (error) reject(error); else resolve(result.secure_url); }
+    );
+    stream.end(buffer);
+  });
+}
 
 async function extractPDF(buffer) {
   try {
@@ -39,8 +53,11 @@ async function extractImageText(buffer, mimeType) {
     if (!apiKey) return '';
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const result = await model.generateContent([{ inlineData: { data: buffer.toString('base64'), mimeType } }, 'Extract ALL text from this image exactly as written. Include headings, bullet points, equations, and diagram descriptions. Output plain text only.']);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const result = await model.generateContent([
+      { inlineData: { data: buffer.toString('base64'), mimeType } },
+      'Extract ALL text from this image exactly as written. Include headings, bullet points, equations. Output plain text only.'
+    ]);
     return result.response.text().trim();
   } catch (e) { console.error('Image OCR failed:', e.message); return ''; }
 }
@@ -49,6 +66,7 @@ export async function POST(req) {
   try {
     const uid = req.cookies.get('uid')?.value;
     if (!uid) return NextResponse.json({ error: 'Not logged in' }, { status: 401 });
+
     const formData = await req.formData();
     const file = formData.get('file');
     const title = formData.get('title')?.toString().trim();
@@ -56,24 +74,40 @@ export async function POST(req) {
     const unit = formData.get('unit')?.toString().trim() || '';
     const tags = formData.get('tags')?.toString().trim() || '';
     const pastedText = formData.get('text')?.toString().trim() || '';
-    if (!title || !subject) return NextResponse.json({ error: 'Title and subject are required' }, { status: 400 });
+
+    if (!title || !subject) return NextResponse.json({ error: 'Title and subject required' }, { status: 400 });
+
     let extractedText = pastedText;
     let fileUrl = '';
     let extractionMethod = 'pasted text';
+
     if (file && typeof file === 'object' && file.size > 0) {
-      const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-      await mkdir(uploadsDir, { recursive: true });
       const buffer = Buffer.from(await file.arrayBuffer());
-      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-      await writeFile(path.join(uploadsDir, safeName), buffer);
-      fileUrl = `/uploads/${safeName}`;
       const nameLower = file.name.toLowerCase();
+
+      // Upload to Cloudinary
+      try {
+        fileUrl = await uploadToCloudinary(buffer, file.name.replace(/[^a-zA-Z0-9._-]/g, '_'));
+        console.log('Uploaded to Cloudinary:', fileUrl);
+      } catch (e) {
+        console.error('Cloudinary upload failed:', e.message);
+        // fallback: save locally
+        const { writeFile, mkdir } = require('fs/promises');
+        const path = require('path');
+        const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+        await mkdir(uploadsDir, { recursive: true });
+        const safeName = Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        await writeFile(path.join(uploadsDir, safeName), buffer);
+        fileUrl = '/uploads/' + safeName;
+      }
+
       if (nameLower.endsWith('.pdf')) {
         const pdfText = await extractPDF(buffer);
         if (pdfText.length > 30) { extractedText = pdfText + (pastedText ? '\n\n' + pastedText : ''); extractionMethod = 'pdf'; }
-        else { extractionMethod = 'pdf-fallback'; }
+        else extractionMethod = 'pdf-fallback';
       } else if (nameLower.match(/\.(txt|md|csv)$/i)) {
-        extractedText = buffer.toString('utf-8') + (pastedText ? '\n\n' + pastedText : ''); extractionMethod = 'text-file';
+        extractedText = buffer.toString('utf-8') + (pastedText ? '\n\n' + pastedText : '');
+        extractionMethod = 'text-file';
       } else if (nameLower.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
         const mimeMap = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', webp:'image/webp', gif:'image/gif' };
         const ext = nameLower.split('.').pop();
@@ -81,16 +115,36 @@ export async function POST(req) {
         if (ocrText.length > 30) { extractedText = ocrText + (pastedText ? '\n\n' + pastedText : ''); extractionMethod = 'ocr'; }
       }
     }
+
     if (!extractedText || extractedText.trim().length < 20) {
-      extractedText = [title, subject, unit, tags, pastedText].filter(Boolean).join('. ') + '. No text content could be extracted — analysis based on metadata only.';
+      extractedText = [title, subject, unit, tags, pastedText].filter(Boolean).join('. ') + '. No text extracted — using metadata only.';
       extractionMethod = 'metadata-only';
     }
-    console.log(`Extraction: ${extractionMethod}, length: ${extractedText.length}`);
+
+    console.log('Extraction:', extractionMethod, 'length:', extractedText.length);
+
     const ai = await generateNoteIntelligence(extractedText);
     const embedding = generateEmbedding([title, subject, unit, tags, ai.summary, extractedText.slice(0, 2000)].join(' '));
-    const result = db.prepare(`INSERT INTO notes (user_id, title, subject, unit, tags, file_url, extracted_text, summary, key_topics, exam_questions, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(uid, title, subject, unit, tags, fileUrl, extractedText.slice(0, 50000), ai.summary, JSON.stringify(ai.topics), JSON.stringify(ai.questions), JSON.stringify(embedding));
+
+    const result = db.prepare(`
+      INSERT INTO notes (user_id, title, subject, unit, tags, file_url, extracted_text, summary, key_topics, exam_questions, embedding)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(uid, title, subject, unit, tags, fileUrl, extractedText.slice(0, 50000), ai.summary, JSON.stringify(ai.topics), JSON.stringify(ai.questions), JSON.stringify(embedding));
+
     db.prepare('UPDATE users SET reputation = reputation + 10 WHERE id = ?').run(uid);
+
     const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(result.lastInsertRowid);
-    return NextResponse.json({ note: { ...note, key_topics: JSON.parse(note.key_topics || '[]'), exam_questions: JSON.parse(note.exam_questions || '[]'), embedding: undefined, extraction_method: extractionMethod } });
-  } catch (e) { console.error('Upload error:', e); return NextResponse.json({ error: e.message }, { status: 500 }); }
+    return NextResponse.json({
+      note: {
+        ...note,
+        key_topics: JSON.parse(note.key_topics || '[]'),
+        exam_questions: JSON.parse(note.exam_questions || '[]'),
+        embedding: undefined,
+        extraction_method: extractionMethod,
+      },
+    });
+  } catch (e) {
+    console.error('Upload error:', e);
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
 }
