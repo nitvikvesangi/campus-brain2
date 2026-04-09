@@ -30,7 +30,7 @@ export async function GET(req) {
     else if (mode === 'semantic') score = semScore;
     else score = keywordScore * 0.6 + semScore * 0.4;
     return { ...n, score, key_topics: n.key_topics ? JSON.parse(n.key_topics) : [], embedding: undefined };
-  }).filter(n => n.score > 0.05).sort((a,b) => b.score - a.score).slice(0, 10);
+  }).filter(n => n.score > 0.02).sort((a,b) => b.score - a.score).slice(0, 10);
 
   let qRows = db.prepare(`
     SELECT q.*, u.name as author_name, u.roll_number,
@@ -45,7 +45,7 @@ export async function GET(req) {
     try { sem = cosineSimilarity(queryEmb, JSON.parse(qr.embedding || '[]')); } catch {}
     const score = mode === 'keyword' ? kw : mode === 'semantic' ? sem : kw * 0.6 + sem * 0.4;
     return { ...qr, score, embedding: undefined };
-  }).filter(r => r.score > 0.05).sort((a,b) => b.score - a.score).slice(0, 10);
+  }).filter(r => r.score > 0.02).sort((a,b) => b.score - a.score).slice(0, 10);
 
   return NextResponse.json({ notes: noteRows, questions: qRows, mode });
 }
